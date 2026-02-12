@@ -1,0 +1,210 @@
+---
+title: "Week 3 Update: Passive Ownership Measurement and Preliminary Volatility Analysis"
+author: "Ryan Levy, Srimaan Bekkari, Ryan Rammacher, West Plowman"
+date: "2026-02-12"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# 1. Data Sources and Passive Ownership Measure
+
+This section describes the institutional ownership data used to construct a proxy for passive investment. We use 13F filings obtained through the SEC API, focusing on holdings reported by BlackRock, Vanguard, and State Street.
+
+To measure passive ownership at the firm–year level, we compute the proportion of publicly available shares held by these institutions.
+
+$$
+\text{PassiveOwnership}_{it} = 
+\frac{\text{SharesHeldByPassive}_{it}}{\text{SharesOutstanding}_{it}}
+$$
+
+```{r}
+# load in passive investment data
+# gives shares held per reporting period per year aggrigated between BlackRock, Vanguard, and State Street
+p_own_raw <- read.csv("13f_api_outputs/BVS_13f_holdings_panel.csv")
+
+p_own <- p_own_raw
+# format date column
+p_own$report_date <- as.Date(p_own$report_date)
+p_own$year <- as.integer(format(p_own$report_date, "%Y"))
+# divides shares held by shares outstanding for proxy passive ownership metric
+p_own$percentage_owned <- p_own$shares_held_total / p_own$shares_outstanding
+```
+
+# 2. Illustrative Example: Apple Inc. (AAPL)
+
+To illustrate the construction of the passive ownership metric, we present a demonstration using Apple Inc. (AAPL). We aggregate institutional holdings by year and compute annual average passive ownership.
+
+```{r}
+# subset AAPL for demo
+p_own_appl <- p_own[p_own$ticker == "AAPL",]
+
+# consolidates averages per year
+p_own_aapl_yr <- aggregate(percentage_owned ~ year, data = p_own_appl, FUN = mean)
+
+
+head(p_own_aapl_yr)
+```
+
+# 3. Stock Price Data and Volatility Construction
+
+We next introduce daily stock price data to construct a volatility measure that can be compared to passive ownership levels. Daily log returns are computed and aggregated into an annualized realized volatility measure.
+
+```{r}
+# load in data
+aapl_raw <- read.csv("ipo_to_2026_stock_volatility/aapl_us_d.csv")
+aapl <- aapl_raw
+# format date
+aapl$Data <- as.Date(aapl$Data)
+aapl$year <- as.integer(format(aapl$Data, "%Y"))
+
+# daily log return r_t = ln(Close_t / Close_{t-1})
+aapl$log_ret <- c(NA, diff(log(aapl$Close)))
+
+# year and annualized realized volatility
+years <- sort(unique(aapl$year))
+aapl_vol_annual <- data.frame(
+  year = years,
+  ann_vol = NA_real_,
+  n_days = NA_integer_,
+  stringsAsFactors = FALSE
+)
+
+# compute sigma_y = sd(daily returns in year y) * sqrt(252)
+for (i in seq_along(years)) {
+  y <- years[i]
+  
+  r <- aapl$log_ret[aapl$year == y]
+  r <- r[!is.na(r)]
+  
+  aapl_vol_annual$ann_vol[i] <- sd(r) * sqrt(252)
+  aapl_vol_annual$n_days[i]  <- length(r)
+}
+
+# Inspect
+head(aapl_vol_annual, 10)
+```
+# 4. Merging Passive Ownership and Volatility Data
+
+The passive ownership and volatility datasets are merged at the yearly level. This allows for direct comparison between changes in institutional ownership and realized stock volatility.
+
+```{r}
+merged_df <- merge(
+  p_own_aapl_yr,
+  aapl_vol_annual,
+  by = "year",
+  all = FALSE
+)
+
+merged_df[,c("year", "percentage_owned", "ann_vol")]
+
+par(mar = c(5, 4, 4, 4) + 0.1)
+
+plot(
+  merged_df$year,
+  merged_df$percentage_owned,
+  type = "o",
+  pch = 16,
+  xlab = "Year",
+  ylab = "Passive Ownership"
+)
+
+par(new = TRUE)
+
+plot(
+  merged_df$year,
+  merged_df$ann_vol,
+  type = "o",
+  pch = 17,
+  axes = FALSE,
+  xlab = "",
+  ylab = ""
+)
+
+axis(side = 4)
+mtext("Annualized Volatility", side = 4, line = 3)
+title("AAPL: Passive Ownership vs Annualized Volatility", line = 2)
+
+legend(
+  "topleft",
+  legend = c("Passive Ownership", "Annualized Volatility"),
+  pch = c(16, 17),
+  lty = 1,
+  bty = "n"
+)
+
+
+
+```
+Aside from the large spike in passive ownership in 2014, the two lines seem to follow a similar pattern.
+
+# 5. High-Frequency Visualization (Non-Annualized Data)
+
+To examine the relationship in finer detail, we plot quarterly passive ownership alongside daily stock price data beginning in 2010.
+
+```{r}
+aapl_raw_2 <- aapl_raw
+p_own_raw_2 <- p_own_raw
+
+aapl_raw_2$Data <- as.Date(aapl_raw_2$Data)
+p_own_raw_2$report_date <- as.Date(p_own_raw_2$report_date)
+
+p_own_raw_2$percentage_owned <- p_own_raw_2$shares_held_total / p_own_raw_2$shares_outstanding
+
+p_own_raw_2 <- p_own_raw_2[p_own_raw_2$ticker == "AAPL",]
+
+head(aapl_raw_2)
+head(p_own_raw_2)
+```
+
+```{r}
+cut_date <- as.Date("2010-01-01")
+
+aapl_2010 <- subset(aapl_raw_2, Data >= cut_date)
+p_2010 <- subset(p_own_raw_2, ticker == "AAPL" & report_date >= cut_date)
+
+plot(aapl_2010$Data, aapl_2010$Close, type="l",
+     xlab="Date", ylab="Close Price",
+     main="AAPL: Close vs Passive Ownership (2010+)")
+
+par(new=TRUE)
+
+plot(p_2010$report_date, p_2010$percentage_owned,
+     type="l", lty=3, axes=FALSE, xlab="", ylab="")
+
+axis(side=4)
+mtext("Passive Ownership", side=4, line=3)
+
+legend("topleft",
+       legend = c("AAPL Close", "AAPL Passive Ownership"),
+       lty = c(1, 3),
+       bty = "n")
+```
+
+Two periods of sharp increases in passive ownership are visible and warrant further investigation. Perhaps also removing the linear trend from the data to only see the volatility would help.
+
+```{r}
+# compute log returns (centered around 0)
+aapl_2010$log_ret <- c(NA, diff(log(aapl_2010$Close)))
+
+plot(aapl_2010$Data, aapl_2010$log_ret, type="l",
+     xlab="Date", ylab="Daily Log Return",
+     main="AAPL Returns vs Passive Ownership (2010+)")
+
+abline(h = 0, lty = 2)  # zero reference line
+
+par(new=TRUE)
+
+plot(p_2010$report_date, p_2010$percentage_owned,
+     type="l", lty=3, axes=FALSE, xlab="", ylab="")
+
+axis(side=4)
+mtext("Passive Ownership", side=4, line=3)
+
+legend("topleft",
+       legend = c("AAPL Daily Returns", "Passive Ownership"),
+       lty = c(1, 3),
+       bty = "n")
+```
+
+It seems like large spikes of volatility follow the sharp increase in passive ownership, but further analysis is still to be done.
