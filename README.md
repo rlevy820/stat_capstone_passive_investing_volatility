@@ -1,7 +1,8 @@
 # Impacts of Passive Investing on Stock Volatility
 
-Authors: Ryan Levy, Srimaan Bekkari, Ryan Rammacher, West Plowman
-Date Started: 01/29/2026
+- **Authors:** Ryan Levy, Srimaan Bekkari, Ryan Rammacher, West Plowman
+
+- **Date Started:** 01/29/2026
 
 University of Virginia B.A. Statistics Capstone project exploring how the growth of passive investment management has affected the volatility of individual stock prices in the U.S stock market.
 
